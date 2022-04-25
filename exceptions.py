@@ -1,10 +1,6 @@
-class EmptyListException(Exception):
+class APIAnswerError(Exception):
     pass
 
 
-class MissingRequiredVariableException(Exception):
-    pass
-
-
-class UnexpectedResponseException(Exception):
+class SendMessageException(Exception):
     pass

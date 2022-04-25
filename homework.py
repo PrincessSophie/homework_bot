@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import time
+from http import HTTPStatus
 
 import requests
 import telegram
@@ -34,97 +35,95 @@ logger.addHandler(streamHandler)
 
 def send_message(bot, message):
     """Отправляет сообщение в Telegram."""
-    logger.info(f'Сообщение: {message}. Oтправлено')
-    return bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+    try:
+        chat_id = TELEGRAM_CHAT_ID
+        bot.send_message(chat_id=chat_id, text=message)
+        logging.info('Успешная отправка сообщения')
+    except exceptions.SendMessageException as error:
+        logging.error(f'Сбой при отправке сообщения: {error}')
 
 
 def get_api_answer(current_timestamp):
     """Делает запрос к эндпоинту API."""
-    timestamp = current_timestamp or int(time.time())
-    params = {'from_date': timestamp}
+    params = {'from_date': current_timestamp}
     try:
-        homework_statuses = requests.get(
+        response = requests.get(
             ENDPOINT,
             headers=HEADERS,
             params=params
         )
-        if homework_statuses.status_code // 100 != 2:
-            logger.error(
-                f'Ошибка: неожиданный ответ {homework_statuses}.'
-            )
-            raise exceptions.UnexpectedResponseException(
-                f'Ошибка: неожиданный ответ {homework_statuses}.'
-            )
-        return homework_statuses.json()
-    except requests.exceptions.RequestException as e:
-        logger.error(
-            'Сбой в работе программы: ',
-            f'Эндпоинт {ENDPOINT} недоступен.'
-        )
-        raise ("Error: {}".format(e))
+    except Exception:
+        message = 'API ведет себя незапланированно'
+        raise exceptions.APIAnswerError(message)
+    if response.status_code != HTTPStatus.OK:
+        message = 'Эндпоинт не отвечает'
+        raise Exception(message)
+    return response.json()
 
 
 def check_response(response):
     """Проверяет ответ API на корректность."""
-    result = response['homeworks']
-    if result is None:
-        logger.error('Отсутствует ожидаемый ключ')
-        raise KeyError('Ключ "homeworks" не найден')
-    if type(result) != list:
-        raise TypeError('"result" не список')
-    return result
+    if not isinstance(response, dict):
+        raise TypeError('Ответ API не соответсвует ожиданиям')
+    if 'homeworks' not in response:
+        raise KeyError('Отсутствует ключ homeworks')
+    if not isinstance(response['homeworks'], list):
+        raise TypeError('Ответ API не соответствует ожиданиям')
+    homework = response.get('homeworks')
+    return homework
 
 
 def parse_status(homework):
     """Извлекает статус домашней работы."""
-    homework_name = homework['homework_name']
-    homework_status = homework['status']
+    if not (('homework_name' in homework) and ('status' in homework)):
+        raise KeyError('Не обнаружены требуемые ключи в homework')
+    homework_name = homework.get('homework_name')
+    homework_status = homework.get('status')
+    message = 'status invalid'
+    if homework_status not in HOMEWORK_STATUSES:
+        logger.error(message)
+        raise KeyError(message)
     verdict = HOMEWORK_STATUSES[homework_status]
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    return f'Изменился статус проверки работы "{homework_name}".{verdict}'
 
 
 def check_tokens():
     """Проверяет доступность переменных окружения."""
-    variable_availability = True
-    for arg in [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]:
-        try:
-            variable_availability = variable_availability and arg
-            if not variable_availability:
+    statuses = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]
+    if None in statuses:
+        for status in statuses:
+            if status is None:
                 logger.critical(
-                    'Отсутствует обязательная переменная окружения.'
+                    f'Отсутствует обязательная переменная окружения: {status}'
                 )
-        except exceptions.MissingRequiredVariableException:
-            raise exceptions.MissingRequiredVariableException(
-                'Отсутствует обязательная переменная окружения.'
-            )
-    return variable_availability
+        return False
+    return True
 
 
 def main():
     """Основная логика работы бота."""
-    if not check_tokens():
-        exit()
+    check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    bot.send_message(TELEGRAM_CHAT_ID, 'Бот запущен')
     current_timestamp = int(time.time())
-    tmp_status = 'reviewing'
-    errors = True
     while True:
         try:
-            response = get_api_answer(ENDPOINT, current_timestamp)
+            response = get_api_answer(current_timestamp)
             homework = check_response(response)
-            if homework and tmp_status != homework['status']:
-                message = parse_status(homework)
-                send_message(bot, message)
-                tmp_status = homework['status']
-            logger.info(
-                'Изменений нет, ждем 10 минут и проверяем API')
-            time.sleep(RETRY_TIME)
+            message = parse_status(homework)
+            send_message(bot, message)
+            current_timestamp = response.get('current_date')
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            if errors:
-                errors = False
-                send_message(bot, message)
-            logger.critical(message)
+            try:
+                bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+            except Exception:
+                message = 'Ошибка во взаимодействии с Telegram'
+                logger.error(message)
+            time.sleep(RETRY_TIME)
+        else:
+            message = 'Удачная отправка сообщения в Телеграм'
+            logger.info(message)
             time.sleep(RETRY_TIME)
 
 
