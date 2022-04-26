@@ -1,6 +1,2 @@
-class APIAnswerError(Exception):
-    pass
-
-
-class SendMessageException(Exception):
+class HTTPStatusNot200(Exception):
     pass

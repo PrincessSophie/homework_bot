@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 import time
-from http import HTTPStatus
+from json.decoder import JSONDecodeError
 
 import requests
 import telegram
@@ -32,15 +32,21 @@ formatter = logging.Formatter('%(asctime)s -  %(levelname)s - %(message)s')
 streamHandler.setFormatter(formatter)
 logger.addHandler(streamHandler)
 
+logging.basicConfig(
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    filename='homework.log',
+)
+
 
 def send_message(bot, message):
     """Отправляет сообщение в Telegram."""
     try:
         chat_id = TELEGRAM_CHAT_ID
         bot.send_message(chat_id=chat_id, text=message)
-        logging.info('Успешная отправка сообщения')
-    except exceptions.SendMessageException as error:
-        logging.error(f'Сбой при отправке сообщения: {error}')
+        logging.info(f'Бот отправил сообщение "{message}"')
+    except telegram.TelegramError as error:
+        logger.exception(f'Сообщение {message} не отправлено: {error}')
 
 
 def get_api_answer(current_timestamp):
@@ -52,78 +58,83 @@ def get_api_answer(current_timestamp):
             headers=HEADERS,
             params=params
         )
-    except Exception:
-        message = 'API ведет себя незапланированно'
-        raise exceptions.APIAnswerError(message)
-    if response.status_code != HTTPStatus.OK:
-        message = 'Эндпоинт не отвечает'
-        raise Exception(message)
-    return response.json()
+    except requests.exceptions.RequestException as error:
+        logging.error(f'Сбой в работе API сервиса: {error}')
+    if response.status_code != 200:
+        logging.error(f'HTTPStatus is not OK: {response.status_code}')
+        raise exceptions.HTTPStatusNot200(
+            f'Эндпоинт {ENDPOINT} недоступен.'
+            f'Код ответа API: {response.status_code}'
+        )
+    try:
+        return response.json()
+    except JSONDecodeError as error:
+        logging.error(f'Ответ от API пришел не в формате JSON: {error}')
+        return {}
 
 
 def check_response(response):
     """Проверяет ответ API на корректность."""
     if not isinstance(response, dict):
-        raise TypeError('Ответ API не соответсвует ожиданиям')
-    if 'homeworks' not in response:
-        raise KeyError('Отсутствует ключ homeworks')
-    if not isinstance(response['homeworks'], list):
         raise TypeError('Ответ API не соответствует ожиданиям')
-    homework = response.get('homeworks')
-    return homework
+    if 'homeworks' not in response:
+        raise KeyError('Нет ключа homeworks в ответе от API')
+    homeworks = response['homeworks']
+    if not isinstance(response['homeworks'], list):
+        raise TypeError('Домашняя работа нет представлена списком.')
+    return homeworks
 
 
 def parse_status(homework):
     """Извлекает статус домашней работы."""
-    if not (('homework_name' in homework) and ('status' in homework)):
-        raise KeyError('Не обнаружены требуемые ключи в homework')
-    homework_name = homework.get('homework_name')
-    homework_status = homework.get('status')
-    message = 'status invalid'
-    if homework_status not in HOMEWORK_STATUSES:
-        logger.error(message)
-        raise KeyError(message)
-    verdict = HOMEWORK_STATUSES[homework_status]
-    return f'Изменился статус проверки работы "{homework_name}".{verdict}'
+    name = homework['homework_name']
+    status = homework['status']
+    if status not in HOMEWORK_STATUSES:
+        raise ValueError(f'Статус домашней работы неизвестен {status}')
+    return f'Статус проверки работы изменился "{name}". {HOMEWORK_STATUSES[status]}'
 
 
 def check_tokens():
     """Проверяет доступность переменных окружения."""
-    statuses = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]
-    if None in statuses:
-        for status in statuses:
-            if status is None:
-                logger.critical(
-                    f'Отсутствует обязательная переменная окружения: {status}'
-                )
+    if PRACTICUM_TOKEN is None:
+        logger.error('Переменная PRACTICUM_TOKEN не задана.')
         return False
-    return True
+    if TELEGRAM_TOKEN is None:
+        logger.error('Переменная TELEGRAM_TOKEN не задана.')
+        return False
+    if TELEGRAM_CHAT_ID is None:
+        logger.error('Переменная TELEGRAM_CHAT_ID не задана.')
+        return False
+    else:
+        logger.info('Проверка переменных прошла успешна.')
+        return True
 
 
 def main():
     """Основная логика работы бота."""
-    check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    bot.send_message(TELEGRAM_CHAT_ID, 'Бот запущен')
     current_timestamp = int(time.time())
-    while True:
+    while check_tokens():
         try:
             response = get_api_answer(current_timestamp)
+            logger.info('Ответ response получен')
             homework = check_response(response)
-            message = parse_status(homework)
-            send_message(bot, message)
-            current_timestamp = response.get('current_date')
+            logger.info('response проверен')
+            if homework:
+                message = parse_status(homework[0])
+                logger.info('Статусы получены')
+                if message != '':
+                    send_message(bot, message)
+                    logger.info('Письмо отправлено')
+            else:
+                logger.info('Статус работы не изменился')
+                time.sleep(RETRY_TIME)
+            current_timestamp = response['current_date']
+            time.sleep(RETRY_TIME)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
-            try:
-                bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-            except Exception:
-                message = 'Ошибка во взаимодействии с Telegram'
-                logger.error(message)
-            time.sleep(RETRY_TIME)
-        else:
-            message = 'Удачная отправка сообщения в Телеграм'
-            logger.info(message)
+            logger.error(f'Проблема с работой. Ошибка {error}')
+            send_message(bot, message)
             time.sleep(RETRY_TIME)
 
 
