@@ -87,11 +87,9 @@ def check_response(response):
 
 def parse_status(homework):
     """Извлекает статус домашней работы."""
-    name = homework['homework_name']
-    status = homework['status']
-    if status not in HOMEWORK_STATUSES:
-        raise ValueError(f'Статус домашней работы неизвестен {status}')
-    return f'Статус проверки изменился "{name}". {HOMEWORK_STATUSES[status]}'
+    verdict = HOMEWORK_STATUSES[homework['status']]
+    homework_name = homework['homework_name']
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
