@@ -1,2 +1,2 @@
-class HTTPStatusNot200(Exception):
+class StatusCodeError(Exception):
     pass
