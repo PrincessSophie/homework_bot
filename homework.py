@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import time
 
 import requests
@@ -14,6 +15,7 @@ PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
+TOKENS = ['PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID']
 RETRY_TIME = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
@@ -46,7 +48,8 @@ def get_api_answer(current_timestamp):
     except requests.exceptions.RequestException as error:
         raise ConnectionError(f'Ошибка доступа {error}. '
                               f'Проверить API: {ENDPOINT}, '
-                              f'Токен авторизации: {HEADERS}, ')
+                              f'Токен авторизации: {HEADERS}, '
+                              f'Запрос с момента времени: {params}')
     if response.status_code != 200:
         raise exceptions.StatusCodeError(
             f'Ошибка ответа сервера. Проверить API: {ENDPOINT}, '
@@ -54,18 +57,29 @@ def get_api_answer(current_timestamp):
             f'Запрос с момента времени: {params},'
             f'Код возврата {response.status_code}'
         )
-    return response.json()
+    if response.json() is not None:
+        return response.json()
+
+    if type(response) is dict:
+        is_error, is_code = response.get('error'), response.get('code')
+    else:
+        is_error, is_code = response[0].get('error'), response[0].get('code')
+
+    if is_error or is_code:
+        message = f'Ошибка внешнего сервера: {is_error}, {is_code}'
+        raise exceptions.ForeignServerError(message)
+    return
 
 
 def check_response(response):
     """Проверяет ответ API на корректность."""
     if not isinstance(response, dict):
-        raise TypeError('В ответе от API нет корректных данных')
+        raise TypeError(f'В ответе от API нет корректных данных {response}')
     if 'homeworks' not in response:
         raise KeyError('Нет ключа homeworks в ответе от API')
     homeworks = response['homeworks']
     if not isinstance(response['homeworks'], list):
-        raise TypeError('Домашняя работа ожидается списком')
+        raise TypeError(f'Домашняя работа ожидается списком {homeworks}')
     return homeworks
 
 
@@ -81,19 +95,12 @@ def parse_status(homework):
 
 def check_tokens():
     """Проверяет доступность переменных окружения."""
-    TOKENS = {
-        'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
-        'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
-        'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
-    }
-    is_tokens = True
     for name in TOKENS:
-        if globals()[name] is None:
-            logging.info(f'Проверьте {name} токена')
-            is_tokens = False
-    if not is_tokens:
-        return False
-    return True
+        token = globals()[name]
+        if token is None or token == '':
+            logging.critical(f'Отсутсвует токен: {name}')
+            return False
+        return True
 
 
 def main():
@@ -116,14 +123,14 @@ def main():
             time.sleep(RETRY_TIME)
         except Exception as error:
             logging.error(f'Сбой в работе программы: {error}')
-            send_message(bot, message=f'Сбой в работе программы: {error}')
-            time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
+    LOG_FILE = __file__ + '.log'
     logging.basicConfig(
+        handlers=[logging.FileHandler(LOG_FILE),
+                  logging.StreamHandler(sys.stdout)],
         level=logging.INFO,
-        filename='homework.log',
         format='%(asctime)s - %(levelname)s - %(message)s',
     )
     main()
