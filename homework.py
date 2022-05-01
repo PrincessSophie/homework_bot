@@ -57,29 +57,33 @@ def get_api_answer(current_timestamp):
             f'Запрос с момента времени: {params},'
             f'Код возврата {response.status_code}'
         )
-    if response.json() is not None:
-        return response.json()
-
-    if type(response) is dict:
-        is_error, is_code = response.get('error'), response.get('code')
+    try:
+        code = response.get('code')
+        error = response.get('error')
+    except AttributeError:
+        message = 'API Домашки не вернул ключ "error" или "code"'
+        logging.info(message)
     else:
-        is_error, is_code = response[0].get('error'), response[0].get('code')
-
-    if is_error or is_code:
-        message = f'Ошибка внешнего сервера: {is_error}, {is_code}'
-        raise exceptions.ForeignServerError(message)
-    return
+        if error or code:
+            message = (f'Получен ответ об отказе от сервера API Практикума'
+                       f' при запросе к "{ENDPOINT}"" с параметрами:'
+                       f' "headers": "{HEADERS}"" и "from_date": "{params}"'
+                       f' Error: "{error}"'
+                       f' Code: "{code}"')
+            logging.error(message)
+            raise exceptions.APIErrorException(message)
+    return response.json()
 
 
 def check_response(response):
     """Проверяет ответ API на корректность."""
     if not isinstance(response, dict):
-        raise TypeError(f'В ответе от API нет корректных данных {response}')
+        raise TypeError(f'В ответе от API нет корректных данных {TypeError}')
     if 'homeworks' not in response:
         raise KeyError('Нет ключа homeworks в ответе от API')
     homeworks = response['homeworks']
     if not isinstance(response['homeworks'], list):
-        raise TypeError(f'Домашняя работа ожидается списком {homeworks}')
+        raise TypeError(f'Домашняя работа ожидается списком {TypeError}')
     return homeworks
 
 
@@ -95,12 +99,13 @@ def parse_status(homework):
 
 def check_tokens():
     """Проверяет доступность переменных окружения."""
+    tokens = True
     for name in TOKENS:
         token = globals()[name]
-        if token is None or token == '':
+        if not token:
             logging.critical(f'Отсутсвует токен: {name}')
             return False
-        return True
+        return tokens
 
 
 def main():
@@ -120,9 +125,9 @@ def main():
             current_timestamp = response.get(
                 'current_date', current_timestamp
             )
-            time.sleep(RETRY_TIME)
         except Exception as error:
             logging.error(f'Сбой в работе программы: {error}')
+            time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
