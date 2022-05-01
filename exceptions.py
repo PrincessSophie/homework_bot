@@ -4,3 +4,7 @@ class StatusCodeError(Exception):
 
 class ForeignServerError(Exception):
     pass
+
+
+class ResponseError(Exception):
+    pass

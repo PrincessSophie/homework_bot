@@ -50,6 +50,16 @@ def get_api_answer(current_timestamp):
                               f'Проверить API: {ENDPOINT}, '
                               f'Токен авторизации: {HEADERS}, '
                               f'Запрос с момента времени: {params}')
+    response_json = response.json()
+    for key in ['code', 'error']:
+        if key in response_json:
+            raise exceptions.ResponseError(
+                key,
+                response_json[key],
+                ENDPOINT,
+                HEADERS,
+                params
+            )
     if response.status_code != 200:
         raise exceptions.StatusCodeError(
             f'Ошибка ответа сервера. Проверить API: {ENDPOINT}, '
@@ -57,33 +67,18 @@ def get_api_answer(current_timestamp):
             f'Запрос с момента времени: {params},'
             f'Код возврата {response.status_code}'
         )
-    try:
-        code = response.get('code')
-        error = response.get('error')
-    except AttributeError:
-        message = 'API Домашки не вернул ключ "error" или "code"'
-        logging.info(message)
-    else:
-        if error or code:
-            message = (f'Получен ответ об отказе от сервера API Практикума'
-                       f' при запросе к "{ENDPOINT}"" с параметрами:'
-                       f' "headers": "{HEADERS}"" и "from_date": "{params}"'
-                       f' Error: "{error}"'
-                       f' Code: "{code}"')
-            logging.error(message)
-            raise exceptions.APIErrorException(message)
-    return response.json()
+    return response_json
 
 
 def check_response(response):
     """Проверяет ответ API на корректность."""
     if not isinstance(response, dict):
-        raise TypeError(f'В ответе от API нет корректных данных {TypeError}')
+        raise TypeError('В ответе от API нет корректных данных'.format(response=response))
     if 'homeworks' not in response:
         raise KeyError('Нет ключа homeworks в ответе от API')
     homeworks = response['homeworks']
     if not isinstance(response['homeworks'], list):
-        raise TypeError(f'Домашняя работа ожидается списком {TypeError}')
+        raise TypeError('Домашняя работа ожидается списком'.format(type=type(response['homeworks'])))
     return homeworks
 
 
@@ -99,13 +94,12 @@ def parse_status(homework):
 
 def check_tokens():
     """Проверяет доступность переменных окружения."""
-    tokens = True
-    for name in TOKENS:
-        token = globals()[name]
-        if not token:
-            logging.critical(f'Отсутсвует токен: {name}')
-            return False
-        return tokens
+    invalid_tokens = [name for name in TOKENS if not globals()[name]]
+    if invalid_tokens:
+        for name in invalid_tokens:
+            logging.error('Отсутствует токен {}'.format(name))
+        return False
+    return True
 
 
 def main():
@@ -126,8 +120,13 @@ def main():
                 'current_date', current_timestamp
             )
         except Exception as error:
-            logging.error(f'Сбой в работе программы: {error}')
-            time.sleep(RETRY_TIME)
+            message = f'Сбой в работе телеграмм-бота: {error}'
+            logging.info(f'В чат отправлено уведомление об ошибке {message}')
+            if errors:
+                errors = False
+                send_message(bot, message)
+                current_timestamp = response.get('current_date')
+                time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
