@@ -17,6 +17,8 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 TOKENS = ['PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID']
 RETRY_TIME = 600
+NOT_IN_LIST = 'В ответе от API нет корректных данных'
+NOT_LIST_TYPE = 'Домашняя работа ожидается списком'
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
@@ -73,12 +75,12 @@ def get_api_answer(current_timestamp):
 def check_response(response):
     """Проверяет ответ API на корректность."""
     if not isinstance(response, dict):
-        raise TypeError('В ответе от API нет корректных данных'.format(response=response))
+        raise TypeError(NOT_IN_LIST.format(response=response))
     if 'homeworks' not in response:
         raise KeyError('Нет ключа homeworks в ответе от API')
     homeworks = response['homeworks']
     if not isinstance(response['homeworks'], list):
-        raise TypeError('Домашняя работа ожидается списком'.format(type=type(response['homeworks'])))
+        raise TypeError(NOT_LIST_TYPE.format(type=type(response['homeworks'])))
     return homeworks
 
 
@@ -108,6 +110,7 @@ def main():
         raise ValueError('Проверьте значение токенов')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
+    errors = True
     while True:
         try:
             response = get_api_answer(current_timestamp)
