@@ -122,8 +122,8 @@ def main():
             else:
                 mes = parse_status(homeworks[0])
                 if mes != old_message:
-                    if send_message(bot, message):
-                        old_message = message
+                    if send_message(bot, mes):
+                        old_message = mes
             current_timestamp = response.get(
                 'current_date', current_timestamp
             )
