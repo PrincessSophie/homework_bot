@@ -32,8 +32,10 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, text=message)
         logging.info(f'Бот отправил сообщение "{message}"')
+        return True
     except telegram.TelegramError as error:
         logging.error(f'Сообщение {message} не отправлено: {error}')
+        return False
 
 
 def get_api_answer(current_timestamp):
@@ -110,6 +112,7 @@ def main():
         raise ValueError('Проверьте значение токенов')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
+    old_message = ''
     while True:
         try:
             response = get_api_answer(current_timestamp)
@@ -117,15 +120,17 @@ def main():
             if not homeworks:
                 logging.info("Новые статусы отсутствуют.")
             else:
-                send_message(bot, parse_status(homeworks[0]))
+                mes = parse_status(homeworks[0])
+                if mes != old_message:
+                    if send_message(bot, message):
+                        old_message = message
             current_timestamp = response.get(
                 'current_date', current_timestamp
             )
-            time.sleep(RETRY_TIME)
         except Exception as error:
             message = f'Сбой в работе телеграмм-бота: {error}'
             logging.error(message)
-            return send_message(TELEGRAM_CHAT_ID, f'Проблемы: {error}')
+            send_message(TELEGRAM_CHAT_ID, f'Проблемы: {error}')
         time.sleep(RETRY_TIME)
 
 
