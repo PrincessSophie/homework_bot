@@ -2,31 +2,31 @@ import logging
 import os
 import sys
 import time
- 
+
 import requests
 import telegram
 from dotenv import load_dotenv
- 
+
 import exceptions
- 
+
 load_dotenv()
- 
+
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
- 
+
 TOKENS = ['PRACTICUM_TOKEN', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID']
 RETRY_TIME = 600 
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
- 
+
 HOMEWORK_STATUSES = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
- 
- 
+
+
 def send_message(bot, message):
     """Отправляет сообщение в Telegram."""
     try:
@@ -34,8 +34,8 @@ def send_message(bot, message):
         logging.info(f'Бот отправил сообщение "{message}"')
     except telegram.TelegramError as error:
         logging.error(f'Сообщение {message} не отправлено: {error}')
- 
- 
+
+
 def get_api_answer(current_timestamp):
     """Делает запрос к эндпоинту API."""
     params = {'from_date': current_timestamp}
@@ -68,8 +68,8 @@ def get_api_answer(current_timestamp):
             f'Код возврата {response.status_code}'
         )
     return response_json
- 
- 
+
+
 def check_response(response):
     """Проверяет ответ API на корректность."""
     if not isinstance(response, dict):
@@ -80,8 +80,8 @@ def check_response(response):
     if not isinstance(response['homeworks'], list):
         raise TypeError('Домашняя работа ожидается списком', type(response['homeworks']))
     return homeworks
- 
- 
+
+
 def parse_status(homework):
     """Извлекает статус домашней работы."""
     homework_name = homework['homework_name']
@@ -90,8 +90,8 @@ def parse_status(homework):
         raise ValueError(f'Неизвестный статус домашней работы {status}')
     verdict = HOMEWORK_STATUSES[status]
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
- 
- 
+
+
 def check_tokens():
     """Проверяет доступность переменных окружения."""
     invalid_tokens = [name for name in TOKENS if not globals()[name]]
@@ -100,8 +100,8 @@ def check_tokens():
             logging.error('Отсутствует токен {}'.format(name))
         return False
     return True
- 
- 
+
+
 def main():
     """Основная логика работы бота."""
     if not check_tokens():
@@ -127,8 +127,8 @@ def main():
             if last_message != message:
                 send_message(bot, message)
                 last_message = message
- 
- 
+
+
 if __name__ == '__main__':
     LOG_FILE = __file__ + '.log'
     logging.basicConfig(
@@ -138,4 +138,3 @@ if __name__ == '__main__':
         format='%(asctime)s - %(levelname)s - %(message)s',
     )
     main()
- 
