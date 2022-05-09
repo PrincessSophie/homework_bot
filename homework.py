@@ -54,10 +54,10 @@ def get_api_answer(current_timestamp):
     for key in ['code', 'error']:
         if key in response_json:
             raise exceptions.ResponseError(
-                f'{key}',
-                f'{response_json[key]}',
-                f'{ENDPOINT}',
-                f'{HEADERS}',
+                f'{key},'
+                f'{response_json[key]},'
+                f'{ENDPOINT},'
+                f'{HEADERS},'
                 f'{params}'
             )
     if response.status_code != 200:
@@ -110,25 +110,23 @@ def main():
         raise ValueError('Проверьте значение токенов')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
-    last_message = ''
     while True:
         try:
             response = get_api_answer(current_timestamp)
             homeworks = check_response(response)
             if not homeworks:
                 logging.info("Новые статусы отсутствуют.")
-                time.sleep(RETRY_TIME)
             else:
                 send_message(bot, parse_status(homeworks[0]))
             current_timestamp = response.get(
                 'current_date', current_timestamp
             )
+            time.sleep(RETRY_TIME)
         except Exception as error:
             message = f'Сбой в работе телеграмм-бота: {error}'
             logging.error(message)
-            if last_message != message:
-                send_message(bot, message)
-                last_message = message
+            return send_message(TELEGRAM_CHAT_ID, f'Проблемы: {error}')
+        time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
